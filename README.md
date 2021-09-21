@@ -1,8 +1,10 @@
-# (TODO: your game's title)
+# The monitor parking
 
-Author: (TODO: your name)
+Author: Wenlin Mao (wenlinm)
 
-Design: (TODO: In two sentences or fewer, describe what is new and interesting about your game.)
+Design: Lets mimic the watch dog and control our car from the monitor. The goal is 
+ to park the car in the labeled area. It can be quite chanlleging if 
+ park with wrong direction. 
 
 Screen Shot:
 
@@ -10,13 +12,20 @@ Screen Shot:
 
 How Your Asset Pipeline Works:
 
-(TODO: describe the steps in your asset pipeline, from source files to tiles/backgrounds/whatever you upload to the PPU466.)
+For the scene, I modified to adding more than 10 hidden walls along the road so that
+all collision can be computed by bounding box. Then I used make to build the 
+scene file and copy it to the dist folder
 
 How To Play:
 
-(TODO: describe the controls and (if needed) goals/strategy.)
+Control the monitor by mouse and wasd for car to move. You can not have car just rotate 
+at original point as no real car can do that. For changing direction, 
+you need to combine up or down key with left or right key. 
 
-Sources: (TODO: list a source URL for any assets you did not create yourself. Make sure you have a license for the asset.)
+Sources: 
+
+city.blend -- Jim McCann
+hexapod.blend -- Jim McCann
 
 This game was built with [NEST](NEST.md).
 

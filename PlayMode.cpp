@@ -14,13 +14,13 @@
 
 GLuint hexapod_meshes_for_lit_color_texture_program = 0;
 Load< MeshBuffer > hexapod_meshes(LoadTagDefault, []() -> MeshBuffer const * {
-	MeshBuffer const *ret = new MeshBuffer(data_path("hexapod.pnct"));
+	MeshBuffer const *ret = new MeshBuffer(data_path("city3.pnct"));
 	hexapod_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
 	return ret;
 });
 
 Load< Scene > hexapod_scene(LoadTagDefault, []() -> Scene const * {
-	return new Scene(data_path("hexapod.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
+	return new Scene(data_path("city3.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
 		Mesh const &mesh = hexapod_meshes->lookup(mesh_name);
 
 		scene.drawables.emplace_back(transform);
@@ -39,17 +39,30 @@ Load< Scene > hexapod_scene(LoadTagDefault, []() -> Scene const * {
 PlayMode::PlayMode() : scene(*hexapod_scene) {
 	//get pointers to leg for convenience:
 	for (auto &transform : scene.transforms) {
-		if (transform.name == "Hip.FL") hip = &transform;
-		else if (transform.name == "UpperLeg.FL") upper_leg = &transform;
-		else if (transform.name == "LowerLeg.FL") lower_leg = &transform;
+		if (transform.name == "Car Body") car_body = &transform;
+		else if (transform.name == "wall1") walls.push_back(Wall(FaceDir::negY, 3.5f, &transform));
+		else if (transform.name == "wall2.000") walls.push_back(Wall(FaceDir::posY, 20.f, &transform));
+		else if (transform.name == "wall2.001") walls.push_back(Wall(FaceDir::negX, 20.f, &transform));
+		else if (transform.name == "wall2.002") walls.push_back(Wall(FaceDir::posX, 0.8f, &transform));
+		else if (transform.name == "wall2.003") walls.push_back(Wall(FaceDir::posY, 1.f, &transform));
+		else if (transform.name == "wall2.004") walls.push_back(Wall(FaceDir::posX, 0.5f, &transform));
+		else if (transform.name == "wall2.005") walls.push_back(Wall(FaceDir::posY, 1.5f, &transform));
+		else if (transform.name == "wall2.006") walls.push_back(Wall(FaceDir::negY, 0.5f, &transform));
+		else if (transform.name == "wall2.007") walls.push_back(Wall(FaceDir::negY, 0.2f, &transform));
+		else if (transform.name == "wall2.008") walls.push_back(Wall(FaceDir::posX, 0.3f, &transform));
+		else if (transform.name == "wall2.009") walls.push_back(Wall(FaceDir::negY, 3.f, &transform));
+		else if (transform.name == "wall2.010") walls.push_back(Wall(FaceDir::posX, 20.f, &transform));
+		else if (transform.name == "wall2.012") walls.push_back(Wall(FaceDir::posX, 0.8f, &transform));
+		else if (transform.name == "wall2.013") walls.push_back(Wall(FaceDir::negX, 1.f, &transform));
+		else if (transform.name == "wall2.011") {
+			parkingWall = Wall(FaceDir::negY, 2.f, &transform);
+			walls.push_back(parkingWall);
+		}
+		else if (transform.name == "Parking") parking = &transform;
 	}
-	if (hip == nullptr) throw std::runtime_error("Hip not found.");
-	if (upper_leg == nullptr) throw std::runtime_error("Upper leg not found.");
-	if (lower_leg == nullptr) throw std::runtime_error("Lower leg not found.");
+	if (car_body == nullptr) throw std::runtime_error("Car body not found.");
 
-	hip_base_rotation = hip->rotation;
-	upper_leg_base_rotation = upper_leg->rotation;
-	lower_leg_base_rotation = lower_leg->rotation;
+	car_body_base_rotation = car_body->rotation;
 
 	//get pointer to camera for convenience:
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
@@ -120,44 +133,80 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 }
 
 void PlayMode::update(float elapsed) {
+	if (isGameOver) return;
 
-	//slowly rotates through [0,1):
-	wobble += elapsed / 10.0f;
-	wobble -= std::floor(wobble);
+	// hit wall algorithm
+	auto hitWalls = [this](glm::vec3 & pos){
+		// min_x, max_x
+		// min_y, max_y
+		// min_z, max_z
+		AABB posAABB (pos.x - carSize.x, pos.x + carSize.x, 
+			pos.y - carSize.y, pos.y + carSize.y);
+		
+		bool ret = false;
+		for (Wall& w : walls){
+			ret |= w.bbox.isIntersect(posAABB);
+		}
+		return ret;
+	};
 
-	hip->rotation = hip_base_rotation * glm::angleAxis(
-		glm::radians(5.0f * std::sin(wobble * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 1.0f, 0.0f)
-	);
-	upper_leg->rotation = upper_leg_base_rotation * glm::angleAxis(
-		glm::radians(7.0f * std::sin(wobble * 2.0f * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
-	lower_leg->rotation = lower_leg_base_rotation * glm::angleAxis(
-		glm::radians(10.0f * std::sin(wobble * 3.0f * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
+	auto isParked = [this](glm::vec3 & pos) {
+		AABB posAABB (pos.x - carSize.x, pos.x + carSize.x, 
+			pos.y - carSize.y, pos.y + carSize.y);
+		// AABB parkingBBox (parking->position.x - parkingSize.x, 
+		// 	parking->position.x + parkingSize.x, 
+		// 	parking->position.y - parkingSize.y,
+		// 	parking->position.y + parkingSize.y);
+		// std::cout << parkingWall.bbox.isIntersect(posAABB) << std::endl;
+		// return parkingBBox.isContain(posAABB);
 
-	//move camera:
+		return parkingWall.bbox.isIntersect(posAABB);
+
+	};
+
+	// move car body
 	{
-
 		//combine inputs into a move:
-		constexpr float PlayerSpeed = 30.0f;
-		glm::vec2 move = glm::vec2(0.0f);
-		if (left.pressed && !right.pressed) move.x =-1.0f;
-		if (!left.pressed && right.pressed) move.x = 1.0f;
-		if (down.pressed && !up.pressed) move.y =-1.0f;
-		if (!down.pressed && up.pressed) move.y = 1.0f;
+		constexpr float PlayerSpeed = 7.0f;
+		constexpr float RotateAngle = 0.01f;
+		float move = 0.f;
+		float angle = 0.f;
+		// move forward and change direction
+		if (left.pressed 
+			&& !right.pressed 
+			&& up.pressed) angle = -RotateAngle;
+		if (!left.pressed 
+			&& right.pressed 
+			&& up.pressed) angle = RotateAngle;
 
-		//make it so that moving diagonally doesn't go faster:
-		if (move != glm::vec2(0.0f)) move = glm::normalize(move) * PlayerSpeed * elapsed;
+		// move backward and change direction in opposite
+		if (left.pressed 
+			&& !right.pressed 
+			&& down.pressed) angle = RotateAngle;
+		if (!left.pressed 
+			&& right.pressed 
+			&& down.pressed) angle = -RotateAngle;
+		if (down.pressed && !up.pressed) move = -PlayerSpeed * elapsed;
+		if (!down.pressed && up.pressed) move = PlayerSpeed * elapsed;
 
-		glm::mat4x3 frame = camera->transform->make_local_to_parent();
-		glm::vec3 right = frame[0];
-		//glm::vec3 up = frame[1];
-		glm::vec3 forward = -frame[2];
+		glm::mat4x3 frame = car_body->make_local_to_parent();
+		// glm::vec3 right = frame[0];
+		glm::vec3 up = -frame[1];
+		// glm::vec3 forward = -frame[2];
 
-		camera->transform->position += move.x * right + move.y * forward;
+		glm::vec3 newPos = car_body->position + move * up;
+
+		if (isParked(newPos)){
+			isGameOver = true;
+		}
+
+		if (!hitWalls(newPos)) {
+			car_body->position = newPos;
+			car_body->rotation = glm::normalize(
+				car_body->rotation
+				* glm::angleAxis(-angle, glm::vec3(0.0f, 0.0f, 1.0f))
+			);
+		}
 	}
 
 	//reset button press counters:
@@ -201,14 +250,28 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 		));
 
 		constexpr float H = 0.09f;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
-			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
-			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
-		float ofs = 2.0f / drawable_size.y;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
-			glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + + 0.1f * H + ofs, 0.0),
-			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		if (isGameOver) {
+			lines.draw_text("Success!",
+				glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0xff, 0x00, 0x00, 0x00));
+			float ofs = 2.0f / drawable_size.y;
+			lines.draw_text("Success!",
+				glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + + 0.1f * H + ofs, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		} else {
+			lines.draw_text("Mouse motion rotates camera; WASD moves car; escape ungrabs mouse",
+				glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			float ofs = 2.0f / drawable_size.y;
+			lines.draw_text("Mouse motion rotates camera; WASD moves car; escape ungrabs mouse",
+				glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + + 0.1f * H + ofs, 0.0),
+				glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+				glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		}
+
+		
 	}
 }
